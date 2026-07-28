@@ -1,43 +1,54 @@
 const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
+const twilio = require('twilio');
 const path = require('path');
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+app.use(express.json());
 
-// Serve static files from "public" directory
+// Public folder ki static files serve karne ke liye
 app.use(express.static(path.join(__dirname, 'public')));
 
-// WebRTC Signaling Handler
-io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
+// Railway Variables se keys pick karega
+const accountSid = process.env.TWILIO_ACCOUNT_SID;
+const authToken = process.env.TWILIO_AUTH_TOKEN;
+const virtualSecretNumber = process.env.TWILIO_PHONE_NUMBER;
 
-    socket.on('join-room', (roomId) => {
-        socket.join(roomId);
-        socket.to(roomId).emit('user-connected', socket.id);
-    });
+let client;
+if (accountSid && authToken) {
+    client = twilio(accountSid, authToken);
+}
 
-    socket.on('offer', (data) => {
-        socket.to(data.room).emit('offer', data.offer);
-    });
+// Main Page Route
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
-    socket.on('answer', (data) => {
-        socket.to(data.room).emit('answer', data.answer);
-    });
+// Real Phone Anonymous Call Trigger Route
+app.post('/api/make-secret-call', async (req, res) => {
+    const { targetNumber } = req.body;
 
-    socket.on('ice-candidate', (data) => {
-        socket.to(data.room).emit('ice-candidate', data.candidate);
-    });
+    if (!client) {
+        return res.status(500).json({ 
+            success: false, 
+            error: "Railway me Twilio Environment Variables set nahi hain!" 
+        });
+    }
 
-    socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
-    });
+    try {
+        const call = await client.calls.create({
+            twiml: '<Response><Say>Connecting your private encrypted secret call.</Say></Response>',
+            to: targetNumber,           // Receiver Ka Mobile (+91...)
+            from: virtualSecretNumber  // Twilio Anonymous Virtual Number (Aapka identity hide karega)
+        });
+
+        res.json({ success: true, message: "Secret Call Dispatched!", callSid: call.sid });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+app.listen(PORT, () => {
+    console.log(`Secret Call Gateway running on port ${PORT}`);
 });
-
