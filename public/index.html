@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secret Call - Private Portal</title>
-    <!-- Twilio Voice SDK -->
+    <!-- Twilio Voice Official SDK -->
     <script src="https://media.twiliocdn.com/sdk/js/voice/releases/2.10.1/twilio-voice.min.js"></script>
 
     <style>
@@ -136,9 +136,7 @@
             <div class="input-group hidden" id="yourPhoneGroup">
                 <label>Your Active Phone Number</label>
                 <div class="input-wrapper">
-                    <select class="country-select" id="myCountryCode">
-                        <option value="+91" selected>🇮🇳 +91</option>
-                    </select>
+                    <select class="country-select" id="myCountryCode"><option value="+91" selected>🇮🇳 +91</option></select>
                     <input type="tel" id="myNumber" class="phone-input" placeholder="Active Mobile Number" maxlength="10">
                 </div>
             </div>
@@ -146,11 +144,18 @@
             <div class="input-group">
                 <label>Target Phone Number</label>
                 <div class="input-wrapper">
-                    <select class="country-select" id="targetCountryCode">
-                        <option value="+91" selected>🇮🇳 +91</option>
-                    </select>
+                    <select class="country-select" id="targetCountryCode"><option value="+91" selected>🇮🇳 +91</option></select>
                     <input type="tel" id="targetNumber" class="phone-input" placeholder="Target Number" maxlength="10">
                 </div>
+            </div>
+
+            <div class="input-group">
+                <label>Voice Mode & Effect</label>
+                <select id="voiceEffect" class="effect-select">
+                    <option value="normal">🎙️ Normal Clear Voice</option>
+                    <option value="deep">🤖 Deep Male Pitch Mode</option>
+                    <option value="high">🐿️ High Pitch Mode</option>
+                </select>
             </div>
 
             <button class="glass-btn" onclick="initiateSecretCall()">🛡️ Connect Secret Call</button>
@@ -158,7 +163,7 @@
         </div>
     </div>
 
-    <!-- CALL INTERFACE MODAL -->
+    <!-- CALL MODAL -->
     <div class="modal-overlay" id="callModal">
         <div class="call-screen">
             <div class="avatar-glow">📞</div>
@@ -205,6 +210,7 @@
         async function initiateSecretCall() {
             const targetCode = document.getElementById('targetCountryCode').value;
             const targetNum = document.getElementById('targetNumber').value.trim();
+            const selectedEffect = document.getElementById('voiceEffect').value;
             const errorDiv = document.getElementById('dialerError');
 
             if (targetNum.length < 10) {
@@ -216,7 +222,7 @@
             errorDiv.style.display = 'none';
             document.getElementById('targetDisplayNum').innerText = targetCode + " " + targetNum;
             document.getElementById('callModal').classList.add('active');
-            document.getElementById('callStatusText').innerText = "Fetching Secure Session...";
+            document.getElementById('callStatusText').innerText = "Fetching Secure Token...";
 
             if (currentMode === 'browser') {
                 try {
@@ -228,7 +234,7 @@
                         return;
                     }
 
-                    document.getElementById('callStatusText').innerText = "Initializing Voice Device...";
+                    document.getElementById('callStatusText').innerText = "Connecting Voice Engine...";
                     
                     device = new Twilio.Voice.Device(data.token, {
                         codecPreferences: ['opus', 'pcmu'],
@@ -237,9 +243,13 @@
 
                     device.on('registered', async () => {
                         document.getElementById('callStatusText').innerText = "Ringing Target Phone...";
-                        // Target number pass karna
+                        
+                        // Pass Target Number and Voice Effect to Backend
                         activeCall = await device.connect({
-                            params: { To: targetCode + targetNum }
+                            params: { 
+                                To: targetCode + targetNum,
+                                effect: selectedEffect 
+                            }
                         });
 
                         activeCall.on('accept', () => {
@@ -249,12 +259,12 @@
 
                         activeCall.on('disconnect', () => endCall());
                         activeCall.on('error', (err) => {
-                            document.getElementById('callStatusText').innerText = "Call Failed: " + err.message;
+                            document.getElementById('callStatusText').innerText = "Call Error: " + err.message;
                         });
                     });
 
                     device.on('error', (err) => {
-                        document.getElementById('callStatusText').innerText = "Device Error: " + err.message;
+                        document.getElementById('callStatusText').innerText = "SDK Error: " + err.message;
                     });
 
                     await device.register();
@@ -263,7 +273,7 @@
                     document.getElementById('callStatusText').innerText = "Connection Failed!";
                 }
             } else {
-                // Bridge Mode logic
+                // Bridge Mode
                 const myCode = document.getElementById('myCountryCode').value;
                 const myNum = document.getElementById('myNumber').value.trim();
                 if (myNum.length < 10) {
@@ -292,11 +302,14 @@
             }
         }
 
+        // REAL WORKING TWILIO SDK MUTE FUNCTION
         function toggleMute() {
             if (activeCall) {
                 const isMuted = activeCall.isMuted();
-                activeCall.mute(!isMuted);
-                document.getElementById('muteBtn').classList.toggle('active', !isMuted);
+                activeCall.mute(!isMuted); // Twilio Native Mute/Unmute
+                const btn = document.getElementById('muteBtn');
+                btn.classList.toggle('active', !isMuted);
+                btn.innerText = !isMuted ? "🔇" : "🎙️";
             }
         }
 
@@ -322,6 +335,8 @@
                 device = null;
             }
             document.getElementById('callModal').classList.remove('active');
+            document.getElementById('muteBtn').classList.remove('active');
+            document.getElementById('muteBtn').innerText = "🎙️";
         }
     </script>
 </body>
