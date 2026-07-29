@@ -4,8 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secret Call - Private Portal</title>
-    <!-- Latest Twilio Voice SDK -->
+
+    <!-- 1. Microphone Permission Script (Page load par hi mic permission maangega) -->
+    <script src="permission.js"></script>
+
+    <!-- 2. Latest Twilio Voice SDK v2 -->
     <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js"></script>
+
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body {
@@ -89,6 +94,7 @@
 </head>
 <body>
 
+    <!-- LOGIN SCREEN -->
     <div class="container" id="loginScreen">
         <div class="glass-card">
             <div class="header">
@@ -110,6 +116,7 @@
         </div>
     </div>
 
+    <!-- MAIN DIALER SCREEN -->
     <div class="container hidden" id="dialerScreen">
         <div class="glass-card">
             <div class="header">
@@ -147,6 +154,7 @@
         </div>
     </div>
 
+    <!-- CALL INTERFACE MODAL -->
     <div class="modal-overlay" id="callModal">
         <div class="call-screen">
             <div class="avatar-glow">📞</div>
@@ -241,7 +249,6 @@
 
                     document.getElementById('callStatusText').innerText = "Registering Device...";
 
-                    // Initialize Device with modern Twilio Voice SDK
                     device = new Twilio.Voice.Device(data.token, {
                         debug: true,
                         codecPreferences: ['opus', 'pcmu']
