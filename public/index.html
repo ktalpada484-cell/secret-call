@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secret Call - Private Portal</title>
 
-    <!-- Twilio Voice SDK v2 -->
-    <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js"></script>
+    <!-- Official Twilio Voice SDK (No CDN Blocks) -->
+    <script src="https://sdk.twilio.com/js/voice/releases/2.10.1/twilio-voice.min.js"></script>
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
@@ -172,16 +172,22 @@
         let device = null;
         let activeCall = null;
 
-        // Auto Request Mic Permission on Page Load
-        window.addEventListener('DOMContentLoaded', async () => {
+        // AUTOMATIC MICROPHONE PERMISSION REQUEST ON PAGE LOAD
+        async function requestMicPermission() {
             try {
                 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    console.log("Requesting Microphone Permission...");
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                     stream.getTracks().forEach(track => track.stop());
+                    console.log("Microphone Access Granted!");
                 }
-            } catch (e) {
-                console.warn("Initial Mic Permission Request Warning:", e);
+            } catch (err) {
+                console.warn("Microphone Permission Request Error:", err);
             }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            requestMicPermission();
         });
 
         function handleLogin(e) {
@@ -191,6 +197,8 @@
             if (u === VALID_USER && p === VALID_PASS) {
                 document.getElementById('loginScreen').classList.add('hidden');
                 document.getElementById('dialerScreen').classList.remove('hidden');
+                // Re-trigger mic prompt after login
+                requestMicPermission();
             } else {
                 document.getElementById('loginError').style.display = 'block';
             }
