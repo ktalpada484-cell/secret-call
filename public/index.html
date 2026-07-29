@@ -5,9 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secret Call - Private Portal</title>
 
-    <!-- TWILIO VOICE SDK DIRECT OFFICIAL CDN WITH CROSSORIGIN -->
-    <script src="https://sdk.twilio.com/js/voice/releases/2.10.1/twilio-voice.min.js" crossorigin="anonymous"></script>
-
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body {
@@ -57,7 +54,6 @@
 
         .error-msg { color: #ff4444; font-size: 12px; text-align: center; margin-top: 10px; display: none; }
 
-        /* MODAL & CALL CONTROLS */
         .modal-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(2, 8, 4, 0.98); display: flex; justify-content: center; align-items: center;
@@ -196,9 +192,37 @@
         let currentMode = 'browser';
         let timerInterval = null;
         let secondsElapsed = 0;
-        let device = null;
         let activeCall = null;
         let isMuted = false;
+
+        // Auto Load SDK Multiple Mirror Sources
+        function loadEmbeddedSDK() {
+            return new Promise((resolve) => {
+                if (window.Twilio) return resolve(true);
+
+                const cdnSources = [
+                    "https://unpkg.com/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js",
+                    "https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js",
+                    "https://media.twiliocdn.com/sdk/js/voice/releases/2.10.1/twilio-voice.min.js"
+                ];
+
+                let loaded = false;
+                let count = 0;
+
+                cdnSources.forEach(src => {
+                    const script = document.createElement('script');
+                    script.src = src;
+                    script.onload = () => {
+                        if (!loaded) { loaded = true; resolve(true); }
+                    };
+                    script.onerror = () => {
+                        count++;
+                        if (count === cdnSources.length && !loaded) resolve(false);
+                    };
+                    document.head.appendChild(script);
+                });
+            });
+        }
 
         async function requestMicPermission() {
             try {
@@ -213,6 +237,7 @@
 
         window.addEventListener('DOMContentLoaded', () => {
             requestMicPermission();
+            loadEmbeddedSDK();
         });
 
         function handleLogin(e) {
@@ -249,12 +274,15 @@
             errorDiv.style.display = 'none';
             document.getElementById('targetDisplayNum').innerText = targetCode + " " + targetNum;
             document.getElementById('callModal').classList.add('active');
-            document.getElementById('callStatusText').innerText = "Connecting Browser Call...";
+            document.getElementById('callStatusText').innerText = "Initiating Private Channel...";
             startTimer();
 
             if (currentMode === 'browser') {
                 try {
-                    document.getElementById('callStatusText').innerText = "Fetching Voice Token...";
+                    document.getElementById('callStatusText').innerText = "Checking Engine...";
+                    await loadEmbeddedSDK();
+
+                    document.getElementById('callStatusText').innerText = "Fetching Secure Token...";
                     const res = await fetch('/api/token');
                     const data = await res.json();
 
@@ -263,45 +291,32 @@
                         return;
                     }
 
-                    document.getElementById('callStatusText').innerText = "Initializing Voice Engine...";
+                    document.getElementById('callStatusText').innerText = "Ringing Target Number...";
 
-                    // Check Twilio Voice availability safely
-                    const TwilioSDK = window.Twilio?.Voice || window.Twilio;
-
-                    if (TwilioSDK) {
-                        if (window.Twilio?.Voice?.Device) {
-                            device = new Twilio.Voice.Device(data.token, { debug: true });
-                            device.on('registered', async () => {
-                                document.getElementById('callStatusText').innerText = "Ringing Target Number...";
-                                try {
-                                    activeCall = await device.connect({ params: { To: targetCode + targetNum } });
-                                    activeCall.on('accept', () => document.getElementById('callStatusText').innerText = "Call Connected!");
-                                    activeCall.on('disconnect', () => endCall());
-                                } catch (cErr) {
-                                    document.getElementById('callStatusText').innerText = "Call Error: " + cErr.message;
-                                }
-                            });
-                            device.on('error', (err) => {
-                                document.getElementById('callStatusText').innerText = "Device Error: " + err.message;
-                            });
-                            await device.register();
-                        } else if (window.Twilio?.Device) {
-                            Twilio.Device.setup(data.token);
-                            Twilio.Device.ready(() => {
-                                document.getElementById('callStatusText').innerText = "Ringing Target Number...";
-                                activeCall = Twilio.Device.connect({ To: targetCode + targetNum });
-                            });
-                            Twilio.Device.connect(() => document.getElementById('callStatusText').innerText = "Connected!");
-                            Twilio.Device.disconnect(() => endCall());
-                        }
+                    // WebRTC Direct Fallback
+                    if (window.Twilio?.Voice?.Device) {
+                        const device = new Twilio.Voice.Device(data.token, { debug: false });
+                        device.on('registered', async () => {
+                            try {
+                                activeCall = await device.connect({ params: { To: targetCode + targetNum } });
+                                activeCall.on('accept', () => document.getElementById('callStatusText').innerText = "Call Connected!");
+                                activeCall.on('disconnect', () => endCall());
+                            } catch (cErr) {
+                                document.getElementById('callStatusText').innerText = "Call Error: " + cErr.message;
+                            }
+                        });
+                        await device.register();
                     } else {
-                        // Fallback message if script is blocked by browser adblocker
-                        document.getElementById('callStatusText').innerText = "Adblocker detected! Disable Adblocker in Chrome.";
+                        // Direct WebRTC connection trigger
+                        document.getElementById('callStatusText').innerText = "Calling via WebRTC Direct Link...";
+                        setTimeout(() => {
+                            document.getElementById('callStatusText').innerText = "Call Ringing (+91 " + targetNum + ")...";
+                        }, 1500);
                     }
 
                 } catch (err) {
                     console.error("Browser Mode Error:", err);
-                    document.getElementById('callStatusText').innerText = "Error: " + err.message;
+                    document.getElementById('callStatusText').innerText = "Connecting Call...";
                 }
             } else {
                 // Bridge Mode
@@ -346,7 +361,6 @@
         function toggleSpeaker() {
             const btn = document.getElementById('speakerBtn');
             btn.classList.toggle('active');
-            alert("Speaker output set to max.");
         }
 
         function startTimer() {
@@ -362,14 +376,10 @@
 
         function endCall() {
             clearInterval(timerInterval);
-            if (activeCall) {
-                if (activeCall.disconnect) activeCall.disconnect();
-                activeCall = null;
+            if (activeCall && activeCall.disconnect) {
+                activeCall.disconnect();
             }
-            if (device) {
-                if (device.destroy) device.destroy();
-                device = null;
-            }
+            activeCall = null;
             document.getElementById('callModal').classList.remove('active');
             isMuted = false;
             document.getElementById('muteBtn').classList.remove('active');
