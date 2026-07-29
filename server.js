@@ -8,7 +8,8 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
+const apiKey = process.env.TWILIO_API_KEY;
+const apiSecret = process.env.TWILIO_API_SECRET;
 const virtualSecretNumber = process.env.TWILIO_PHONE_NUMBER;
 const twimlAppSid = process.env.TWILIO_TWIML_APP_SID;
 
@@ -19,9 +20,10 @@ app.get('/', (req, res) => {
 // Bridge Call Route
 app.post('/api/bridge-call', async (req, res) => {
     const { yourActiveNumber, targetNumber } = req.body;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
 
     if (!accountSid || !authToken || !virtualSecretNumber) {
-        return res.status(500).json({ success: false, error: "Environment variables missing!" });
+        return res.status(500).json({ success: false, error: "Twilio credentials missing!" });
     }
 
     try {
@@ -39,12 +41,12 @@ app.post('/api/bridge-call', async (req, res) => {
     }
 });
 
-// WebRTC Access Token Route
+// WebRTC Token Route (Using API Key & Secret)
 app.get('/api/token', (req, res) => {
-    if (!accountSid || !authToken || !twimlAppSid) {
+    if (!accountSid || !apiKey || !apiSecret || !twimlAppSid) {
         return res.status(500).json({ 
             success: false, 
-            error: "Twilio credentials (ACCOUNT_SID, AUTH_TOKEN, or TWIML_APP_SID) missing in Railway Environment Variables!" 
+            error: "TWILIO_API_KEY or TWILIO_API_SECRET missing in Railway variables!" 
         });
     }
 
@@ -52,14 +54,14 @@ app.get('/api/token', (req, res) => {
         const AccessToken = twilio.jwt.AccessToken;
         const VoiceGrant = AccessToken.VoiceGrant;
 
-        const identity = 'user_' + Math.floor(Math.random() * 10000);
+        const identity = 'browser_user_' + Math.floor(Math.random() * 10000);
 
         const voiceGrant = new VoiceGrant({
             outgoingApplicationSid: twimlAppSid,
             incomingAllow: true
         });
 
-        const token = new AccessToken(accountSid, accountSid, authToken, { identity: identity });
+        const token = new AccessToken(accountSid, apiKey, apiSecret, { identity: identity });
         token.addGrant(voiceGrant);
 
         res.json({ success: true, token: token.toJwt() });
@@ -69,7 +71,7 @@ app.get('/api/token', (req, res) => {
     }
 });
 
-// TwiML Voice Webhook
+// Voice Webhook
 app.post('/api/voice-webhook', (req, res) => {
     const targetNumber = req.body.To;
     const twiml = new twilio.twiml.VoiceResponse();
