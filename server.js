@@ -4,20 +4,20 @@ const path = require('path');
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: false })); // Twilio webhook requests parsing ke liye
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Railway Environment Variables
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const virtualSecretNumber = process.env.TWILIO_PHONE_NUMBER;
-const twimlAppSid = process.env.TWILIO_TWIML_APP_SID; // TwiML App Sid zaroori hai Browser calling ke liye
+const twimlAppSid = process.env.TWILIO_TWIML_APP_SID;
 
-// Root Route
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// --- OPTION 1: Bridge Call Route (Phone-to-Phone) ---
+// --- Bridge Call Route (Phone-to-Phone) ---
 app.post('/api/bridge-call', async (req, res) => {
     const { yourActiveNumber, targetNumber } = req.body;
 
@@ -40,17 +40,16 @@ app.post('/api/bridge-call', async (req, res) => {
     }
 });
 
-// --- OPTION 2: Browser Voice Token Route (For Real-time WebRTC 2-Way Audio) ---
+// --- Browser Voice Token Route ---
 app.get('/api/token', (req, res) => {
     const AccessToken = twilio.jwt.AccessToken;
     const VoiceGrant = AccessToken.VoiceGrant;
 
     if (!accountSid || !authToken || !twimlAppSid) {
-        return res.status(500).json({ success: false, error: "Twilio API Key or TwiML App SID missing in Environment Variables!" });
+        return res.status(500).json({ success: false, error: "Twilio Environment Variables missing!" });
     }
 
     try {
-        // Unique identity for browser user
         const identity = 'BrowserUser_' + Math.floor(Math.random() * 1000);
 
         const voiceGrant = new VoiceGrant({
@@ -58,7 +57,8 @@ app.get('/api/token', (req, res) => {
             incomingAllow: true
         });
 
-        const token = new AccessToken(accountSid, process.env.TWILIO_API_KEY || authToken, process.env.TWILIO_API_SECRET || authToken, { identity: identity });
+        // Using AccountSID and AuthToken for token generation
+        const token = new AccessToken(accountSid, accountSid, authToken, { identity: identity });
         token.addGrant(voiceGrant);
 
         res.json({ success: true, token: token.toJwt() });
@@ -68,13 +68,17 @@ app.get('/api/token', (req, res) => {
     }
 });
 
-// TwiML Voice Webhook (Called by Twilio when browser initiates voice call)
+// --- TwiML Voice Webhook (Directly connects Browser mic to Target number) ---
 app.post('/api/voice-webhook', (req, res) => {
     const targetNumber = req.body.To;
     const twiml = new twilio.twiml.VoiceResponse();
-    
-    const dial = twiml.dial({ callerId: virtualSecretNumber });
-    dial.number(targetNumber);
+
+    if (targetNumber) {
+        const dial = twiml.dial({ callerId: virtualSecretNumber });
+        dial.number(targetNumber);
+    } else {
+        twiml.say('No target number provided.');
+    }
 
     res.type('text/xml');
     res.send(twiml.toString());
