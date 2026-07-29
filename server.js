@@ -41,12 +41,12 @@ app.post('/api/bridge-call', async (req, res) => {
     }
 });
 
-// WebRTC Token Route (Using API Key & Secret)
+// WebRTC Access Token Route
 app.get('/api/token', (req, res) => {
     if (!accountSid || !apiKey || !apiSecret || !twimlAppSid) {
         return res.status(500).json({ 
             success: false, 
-            error: "TWILIO_API_KEY or TWILIO_API_SECRET missing in Railway variables!" 
+            error: "TWILIO_API_KEY, TWILIO_API_SECRET, or TWIML_APP_SID missing in Railway variables!" 
         });
     }
 
@@ -71,7 +71,7 @@ app.get('/api/token', (req, res) => {
     }
 });
 
-// Voice Webhook
+// Voice Webhook for TwiML App
 app.post('/api/voice-webhook', (req, res) => {
     const targetNumber = req.body.To;
     const twiml = new twilio.twiml.VoiceResponse();
