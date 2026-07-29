@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secret Call - Private Portal</title>
-    <!-- Twilio Official Voice SDK -->
+    <!-- Twilio Voice SDK -->
     <script src="https://media.twiliocdn.com/sdk/js/voice/releases/2.10.1/twilio-voice.min.js"></script>
 
     <style>
@@ -77,18 +77,14 @@
 
         .timer { font-size: 14px; color: #88bb99; margin-top: 5px; }
 
-        .controls-row {
-            display: flex; justify-content: center; gap: 20px; margin-top: 25px;
-        }
+        .controls-row { display: flex; justify-content: center; gap: 20px; margin-top: 25px; }
         .ctrl-btn {
             width: 55px; height: 55px; border-radius: 50%;
             background: rgba(0, 255, 102, 0.1); border: 1px solid rgba(0, 255, 102, 0.4);
             color: #00ff66; font-size: 20px; cursor: pointer; display: flex;
             justify-content: center; align-items: center; transition: all 0.3s ease;
         }
-        .ctrl-btn.active {
-            background: rgba(255, 68, 68, 0.2); border-color: #ff4444; color: #ff4444;
-        }
+        .ctrl-btn.active { background: rgba(255, 68, 68, 0.2); border-color: #ff4444; color: #ff4444; }
 
         .end-btn {
             background: rgba(255, 50, 50, 0.2); border: 1px solid #ff4444; color: #ff4444;
@@ -157,15 +153,6 @@
                 </div>
             </div>
 
-            <div class="input-group">
-                <label>Voice Effect</label>
-                <select id="voiceEffect" class="effect-select">
-                    <option value="normal">🎙️ Normal Voice</option>
-                    <option value="deep">🤖 Deep Male Pitch</option>
-                    <option value="high">🐿️ High Pitch / Female</option>
-                </select>
-            </div>
-
             <button class="glass-btn" onclick="initiateSecretCall()">🛡️ Connect Secret Call</button>
             <div id="dialerError" class="error-msg">Sahi 10-Digit Mobile Numbers Enter Karein!</div>
         </div>
@@ -181,7 +168,6 @@
 
             <div class="controls-row">
                 <button class="ctrl-btn" id="muteBtn" onclick="toggleMute()" title="Mute/Unmute">🎙️</button>
-                <button class="ctrl-btn" id="speakerBtn" onclick="toggleSpeaker()" title="Speaker On/Off">🔊</button>
             </div>
 
             <button class="end-btn" onclick="endCall()">✕</button>
@@ -230,47 +216,87 @@
             errorDiv.style.display = 'none';
             document.getElementById('targetDisplayNum').innerText = targetCode + " " + targetNum;
             document.getElementById('callModal').classList.add('active');
-            document.getElementById('callStatusText').innerText = "Connecting...";
-            startTimer();
+            document.getElementById('callStatusText').innerText = "Fetching Secure Session...";
 
             if (currentMode === 'browser') {
                 try {
                     const res = await fetch('/api/token');
                     const data = await res.json();
+
                     if (!data.success) {
-                        document.getElementById('callStatusText').innerText = "Token Error!";
+                        document.getElementById('callStatusText').innerText = "Token Error: " + data.error;
                         return;
                     }
 
-                    if (window.Twilio && Twilio.Voice) {
-                        device = new Twilio.Voice.Device(data.token);
-                        device.on('registered', async () => {
-                            document.getElementById('callStatusText').innerText = "Ringing...";
-                            activeCall = await device.connect({ params: { To: targetCode + targetNum } });
-                            activeCall.on('accept', () => document.getElementById('callStatusText').innerText = "Connected!");
-                            activeCall.on('disconnect', () => endCall());
+                    document.getElementById('callStatusText').innerText = "Initializing Voice Device...";
+                    
+                    device = new Twilio.Voice.Device(data.token, {
+                        codecPreferences: ['opus', 'pcmu'],
+                        enableIceRestart: true
+                    });
+
+                    device.on('registered', async () => {
+                        document.getElementById('callStatusText').innerText = "Ringing Target Phone...";
+                        // Target number pass karna
+                        activeCall = await device.connect({
+                            params: { To: targetCode + targetNum }
                         });
-                        await device.register();
-                    } else if (window.Twilio && Twilio.Device) {
-                        Twilio.Device.setup(data.token);
-                        Twilio.Device.ready(() => {
-                            document.getElementById('callStatusText').innerText = "Ringing...";
-                            activeCall = Twilio.Device.connect({ To: targetCode + targetNum });
+
+                        activeCall.on('accept', () => {
+                            document.getElementById('callStatusText').innerText = "Call Connected!";
+                            startTimer();
                         });
-                        Twilio.Device.connect(() => document.getElementById('callStatusText').innerText = "Connected!");
-                        Twilio.Device.disconnect(() => endCall());
-                    }
+
+                        activeCall.on('disconnect', () => endCall());
+                        activeCall.on('error', (err) => {
+                            document.getElementById('callStatusText').innerText = "Call Failed: " + err.message;
+                        });
+                    });
+
+                    device.on('error', (err) => {
+                        document.getElementById('callStatusText').innerText = "Device Error: " + err.message;
+                    });
+
+                    await device.register();
+
                 } catch (err) {
                     document.getElementById('callStatusText').innerText = "Connection Failed!";
                 }
             } else {
+                // Bridge Mode logic
                 const myCode = document.getElementById('myCountryCode').value;
                 const myNum = document.getElementById('myNumber').value.trim();
-                fetch('/api/bridge-call', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ yourActiveNumber: myCode + myNum, targetNumber: targetCode + targetNum })
-                });
+                if (myNum.length < 10) {
+                    errorDiv.innerText = "Aapka active mobile number zaroori hai!";
+                    errorDiv.style.display = 'block';
+                    document.getElementById('callModal').classList.remove('active');
+                    return;
+                }
+                document.getElementById('callStatusText').innerText = "Initiating Bridge Call...";
+                try {
+                    const response = await fetch('/api/bridge-call', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ yourActiveNumber: myCode + myNum, targetNumber: targetCode + targetNum })
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                        document.getElementById('callStatusText').innerText = "Your Phone is Ringing...";
+                        startTimer();
+                    } else {
+                        document.getElementById('callStatusText').innerText = "Error: " + data.error;
+                    }
+                } catch (err) {
+                    document.getElementById('callStatusText').innerText = "Bridge Call Failed!";
+                }
+            }
+        }
+
+        function toggleMute() {
+            if (activeCall) {
+                const isMuted = activeCall.isMuted();
+                activeCall.mute(!isMuted);
+                document.getElementById('muteBtn').classList.toggle('active', !isMuted);
             }
         }
 
@@ -287,7 +313,14 @@
 
         function endCall() {
             clearInterval(timerInterval);
-            if (activeCall && activeCall.disconnect) activeCall.disconnect();
+            if (activeCall) {
+                activeCall.disconnect();
+                activeCall = null;
+            }
+            if (device) {
+                device.destroy();
+                device = null;
+            }
             document.getElementById('callModal').classList.remove('active');
         }
     </script>
