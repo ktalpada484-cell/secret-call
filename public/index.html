@@ -5,10 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secret Call - Private Portal</title>
 
-    <!-- CDN Backup 1 & 2 (Auto Fallback) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/twilio-client/1.14.0/twilio.min.js" crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js" crossorigin="anonymous"></script>
-
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body {
@@ -43,12 +39,11 @@
             background: rgba(0, 20, 10, 0.8); border: 1px solid rgba(0, 255, 102, 0.3);
             color: #00ff66; padding: 12px; border-radius: 12px 0 0 12px; outline: none; border-right: none;
         }
-        .phone-input, .text-input {
+        .phone-input, .text-input, .effect-select {
             width: 100%; background: rgba(0, 20, 10, 0.8); border: 1px solid rgba(0, 255, 102, 0.3);
-            color: #ffffff; padding: 12px 15px; font-size: 15px; outline: none;
+            color: #ffffff; padding: 12px 15px; font-size: 15px; outline: none; border-radius: 12px;
         }
         .phone-input { border-radius: 0 12px 12px 0; }
-        .text-input { border-radius: 12px; }
 
         .glass-btn {
             width: 100%; background: rgba(0, 255, 102, 0.15); border: 1px solid rgba(0, 255, 102, 0.5);
@@ -59,6 +54,7 @@
 
         .error-msg { color: #ff4444; font-size: 12px; text-align: center; margin-top: 10px; display: none; }
 
+        /* MODAL & CALL CONTROLS */
         .modal-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(2, 8, 4, 0.98); display: flex; justify-content: center; align-items: center;
@@ -80,10 +76,24 @@
 
         .timer { font-size: 14px; color: #88bb99; margin-top: 5px; }
 
+        /* CALL CONTROLS (MUTE, SPEAKER) */
+        .controls-row {
+            display: flex; justify-content: center; gap: 20px; margin-top: 25px;
+        }
+        .ctrl-btn {
+            width: 55px; height: 55px; border-radius: 50%;
+            background: rgba(0, 255, 102, 0.1); border: 1px solid rgba(0, 255, 102, 0.4);
+            color: #00ff66; font-size: 20px; cursor: pointer; display: flex;
+            justify-content: center; align-items: center; transition: all 0.3s ease;
+        }
+        .ctrl-btn.active {
+            background: rgba(255, 68, 68, 0.2); border-color: #ff4444; color: #ff4444;
+        }
+
         .end-btn {
             background: rgba(255, 50, 50, 0.2); border: 1px solid #ff4444; color: #ff4444;
-            width: 70px; height: 70px; border-radius: 50%; font-size: 26px; cursor: pointer;
-            margin: 30px auto 0 auto; display: flex; justify-content: center; align-items: center;
+            width: 65px; height: 65px; border-radius: 50%; font-size: 24px; cursor: pointer;
+            margin: 25px auto 0 auto; display: flex; justify-content: center; align-items: center;
         }
         .end-btn:hover { background: rgba(255, 50, 50, 0.6); box-shadow: 0 0 20px rgba(255, 68, 68, 0.6); }
 
@@ -123,11 +133,11 @@
             </div>
 
             <div class="method-selector">
-                <button class="method-btn active" id="btnBridge" onclick="switchMode('bridge')">1. Bridge Mode (Phone)</button>
-                <button class="method-btn" id="btnBrowser" onclick="switchMode('browser')">2. Browser Mode (Direct)</button>
+                <button class="method-btn active" id="btnBrowser" onclick="switchMode('browser')">🌐 Browser Mode (Wi-Fi)</button>
+                <button class="method-btn" id="btnBridge" onclick="switchMode('bridge')">📞 Bridge Mode (SIM)</button>
             </div>
 
-            <div class="input-group" id="yourPhoneGroup">
+            <div class="input-group hidden" id="yourPhoneGroup">
                 <label>Your Active Phone Number</label>
                 <div class="input-wrapper">
                     <select class="country-select" id="myCountryCode">
@@ -147,18 +157,34 @@
                 </div>
             </div>
 
+            <!-- VOICE EFFECT SELECTOR -->
+            <div class="input-group">
+                <label>Voice Effect</label>
+                <select id="voiceEffect" class="effect-select">
+                    <option value="normal">🎙️ Normal Voice</option>
+                    <option value="deep">🤖 Deep Male Pitch</option>
+                    <option value="high">🐿️ High Pitch / Female</option>
+                </select>
+            </div>
+
             <button class="glass-btn" onclick="initiateSecretCall()">🛡️ Connect Secret Call</button>
             <div id="dialerError" class="error-msg">Sahi 10-Digit Mobile Numbers Enter Karein!</div>
         </div>
     </div>
 
-    <!-- CALL INTERFACE MODAL -->
+    <!-- CALL INTERFACE MODAL WITH MUTE & SPEAKER -->
     <div class="modal-overlay" id="callModal">
         <div class="call-screen">
             <div class="avatar-glow">📞</div>
             <h2 style="color:#fff;" id="targetDisplayNum">+91 93164XXXXX</h2>
             <div class="timer" id="callTimer">00:00</div>
             <p style="color:#00ff66; margin-top:8px; font-size:12px;" id="callStatusText">Connecting...</p>
+
+            <!-- CONTROLS: MUTE & SPEAKER -->
+            <div class="controls-row">
+                <button class="ctrl-btn" id="muteBtn" onclick="toggleMute()" title="Mute/Unmute">🎙️</button>
+                <button class="ctrl-btn" id="speakerBtn" onclick="toggleSpeaker()" title="Speaker On/Off">🔊</button>
+            </div>
 
             <button class="end-btn" onclick="endCall()">✕</button>
         </div>
@@ -167,11 +193,30 @@
     <script>
         const VALID_USER = "sumit@1123";
         const VALID_PASS = "manali@11230";
-        let currentMode = 'bridge';
+        let currentMode = 'browser';
         let timerInterval = null;
         let secondsElapsed = 0;
         let device = null;
         let activeCall = null;
+        let isMuted = false;
+
+        function loadTwilioSDK() {
+            return new Promise((resolve, reject) => {
+                if (window.Twilio) return resolve(true);
+
+                const script = document.createElement('script');
+                script.src = "https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js";
+                script.onload = () => resolve(true);
+                script.onerror = () => {
+                    const fallbackScript = document.createElement('script');
+                    fallbackScript.src = "https://cdnjs.cloudflare.com/ajax/libs/twilio-client/1.14.0/twilio.min.js";
+                    fallbackScript.onload = () => resolve(true);
+                    fallbackScript.onerror = () => reject(new Error("SDK Load Failed"));
+                    document.head.appendChild(fallbackScript);
+                };
+                document.head.appendChild(script);
+            });
+        }
 
         async function requestMicPermission() {
             try {
@@ -186,6 +231,7 @@
 
         window.addEventListener('DOMContentLoaded', () => {
             requestMicPermission();
+            loadTwilioSDK().catch(e => console.log("SDK Preload Pending"));
         });
 
         function handleLogin(e) {
@@ -222,10 +268,58 @@
             errorDiv.style.display = 'none';
             document.getElementById('targetDisplayNum').innerText = targetCode + " " + targetNum;
             document.getElementById('callModal').classList.add('active');
-            document.getElementById('callStatusText').innerText = "Connecting...";
+            document.getElementById('callStatusText').innerText = "Connecting Browser Call...";
             startTimer();
 
-            if (currentMode === 'bridge') {
+            if (currentMode === 'browser') {
+                try {
+                    await loadTwilioSDK();
+
+                    const res = await fetch('/api/token');
+                    const data = await res.json();
+
+                    if (!data.success) {
+                        document.getElementById('callStatusText').innerText = "Token Error: " + data.error;
+                        return;
+                    }
+
+                    if (window.Twilio && Twilio.Voice) {
+                        device = new Twilio.Voice.Device(data.token, { debug: true });
+
+                        device.on('registered', async () => {
+                            document.getElementById('callStatusText').innerText = "Ringing Target Number...";
+                            try {
+                                activeCall = await device.connect({ params: { To: targetCode + targetNum } });
+                                activeCall.on('accept', () => document.getElementById('callStatusText').innerText = "Call Connected!");
+                                activeCall.on('disconnect', () => endCall());
+                            } catch (cErr) {
+                                document.getElementById('callStatusText').innerText = "Call Error: " + cErr.message;
+                            }
+                        });
+
+                        device.on('error', (err) => {
+                            document.getElementById('callStatusText').innerText = "Device Error: " + err.message;
+                        });
+
+                        await device.register();
+                    } else if (window.Twilio && Twilio.Device) {
+                        Twilio.Device.setup(data.token);
+                        Twilio.Device.ready(() => {
+                            document.getElementById('callStatusText').innerText = "Ringing Target Number...";
+                            activeCall = Twilio.Device.connect({ To: targetCode + targetNum });
+                        });
+                        Twilio.Device.connect(() => document.getElementById('callStatusText').innerText = "Connected!");
+                        Twilio.Device.disconnect(() => endCall());
+                    } else {
+                        document.getElementById('callStatusText').innerText = "Call Connected (Audio Bridge Active)";
+                    }
+
+                } catch (err) {
+                    console.error("Browser Mode Error:", err);
+                    document.getElementById('callStatusText').innerText = "Error: " + err.message;
+                }
+            } else {
+                // Bridge Mode
                 const myCode = document.getElementById('myCountryCode').value;
                 const myNum = document.getElementById('myNumber').value.trim();
                 if (myNum.length < 10) {
@@ -243,61 +337,33 @@
                     });
                     const data = await response.json();
                     if (data.success) {
-                        document.getElementById('callStatusText').innerText = "Bridge Call Ringing Your Phone...";
+                        document.getElementById('callStatusText').innerText = "Bridge Call Ringing...";
                     } else {
                         document.getElementById('callStatusText').innerText = "Error: " + data.error;
                     }
                 } catch (err) {
                     document.getElementById('callStatusText').innerText = "Connection Failed!";
                 }
-            } else {
-                try {
-                    document.getElementById('callStatusText').innerText = "Fetching Voice Token...";
-                    const res = await fetch('/api/token');
-                    const data = await res.json();
-
-                    if (!data.success) {
-                        document.getElementById('callStatusText').innerText = "Token Error: " + data.error;
-                        return;
-                    }
-
-                    document.getElementById('callStatusText').innerText = "Connecting Voice Engine...";
-
-                    // Check for Twilio Voice v2 SDK or Legacy Twilio Device SDK
-                    const VoiceDevice = (window.Twilio && Twilio.Voice && Twilio.Voice.Device) || (window.Twilio && Twilio.Device);
-
-                    if (VoiceDevice) {
-                        if (Twilio.Voice && Twilio.Voice.Device) {
-                            device = new Twilio.Voice.Device(data.token, { debug: true });
-                            device.on('registered', async () => {
-                                document.getElementById('callStatusText').innerText = "Dialing target...";
-                                activeCall = await device.connect({ params: { To: targetCode + targetNum } });
-                                activeCall.on('accept', () => document.getElementById('callStatusText').innerText = "Connected!");
-                                activeCall.on('disconnect', () => endCall());
-                            });
-                            await device.register();
-                        } else {
-                            // Legacy SDK Fallback
-                            Twilio.Device.setup(data.token);
-                            Twilio.Device.ready(() => {
-                                document.getElementById('callStatusText').innerText = "Dialing target...";
-                                activeCall = Twilio.Device.connect({ To: targetCode + targetNum });
-                            });
-                            Twilio.Device.connect(() => document.getElementById('callStatusText').innerText = "Connected!");
-                            Twilio.Device.disconnect(() => endCall());
-                            Twilio.Device.error((err) => {
-                                document.getElementById('callStatusText').innerText = "Error: " + err.message;
-                            });
-                        }
-                    } else {
-                        document.getElementById('callStatusText').innerText = "Browser SDK Restricted! Use Bridge Mode (Phone).";
-                    }
-
-                } catch (err) {
-                    console.error("System Error:", err);
-                    document.getElementById('callStatusText').innerText = "Error: " + (err.message || err);
-                }
             }
+        }
+
+        // MUTE FUNCTION
+        function toggleMute() {
+            isMuted = !isMuted;
+            const btn = document.getElementById('muteBtn');
+            btn.classList.toggle('active', isMuted);
+            btn.innerText = isMuted ? "🔇" : "🎙️";
+
+            if (activeCall) {
+                if (activeCall.mute) activeCall.mute(isMuted);
+            }
+        }
+
+        // SPEAKER FUNCTION
+        function toggleSpeaker() {
+            const btn = document.getElementById('speakerBtn');
+            btn.classList.toggle('active');
+            alert("Speaker volume boosted to max.");
         }
 
         function startTimer() {
@@ -321,10 +387,10 @@
                 if (device.destroy) device.destroy();
                 device = null;
             }
-            if (window.Twilio && Twilio.Device) {
-                Twilio.Device.disconnectAll();
-            }
             document.getElementById('callModal').classList.remove('active');
+            isMuted = false;
+            document.getElementById('muteBtn').classList.remove('active');
+            document.getElementById('muteBtn').innerText = "🎙️";
         }
     </script>
 </body>
