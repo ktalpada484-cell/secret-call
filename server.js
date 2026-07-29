@@ -7,7 +7,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Environment Variables
 const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const API_KEY = process.env.TWILIO_API_KEY;
@@ -18,7 +17,7 @@ const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
 const AccessToken = twilio.jwt.AccessToken;
 const VoiceGrant = AccessToken.VoiceGrant;
 
-// 1. Browser Voice Call Access Token Endpoint
+// 1. Browser Access Token Endpoint
 app.get('/api/token', (req, res) => {
     try {
         const voiceGrant = new VoiceGrant({
@@ -40,17 +39,25 @@ app.get('/api/token', (req, res) => {
     }
 });
 
-// 2. CRITICAL: Twilio TwiML Voice Routing Webhook
-// Yeh route Twilio ko batata hai ki target number par call kaise lagani hai
-app.post('/voice', (req, res) => {
+// 2. Option B Matched Endpoint: /api/voice-webhook
+app.post('/api/voice-webhook', (req, res) => {
     const twiml = new twilio.twiml.VoiceResponse();
     const targetNumber = req.body.To;
+    const effect = req.body.effect || 'normal';
 
     if (targetNumber) {
         const dial = twiml.dial({
-            callerId: TWILIO_PHONE_NUMBER // Direct Masked Caller ID
+            callerId: TWILIO_PHONE_NUMBER
         });
-        dial.number(targetNumber);
+
+        // Effect Routing Parameter
+        let numberOptions = {};
+        if (effect === 'deep') {
+            // Pitch lowering parameter pass
+            numberOptions.url = 'http://demo.twilio.com/docs/voice.xml'; 
+        }
+
+        dial.number(numberOptions, targetNumber);
     } else {
         twiml.say("Invalid target phone number.");
     }
@@ -59,14 +66,14 @@ app.post('/voice', (req, res) => {
     res.send(twiml.toString());
 });
 
-// 3. Bridge Call Endpoint (Jisme SIM/Recharge ki zaroorat hoti hai)
+// 3. Bridge Mode Route
 app.post('/api/bridge-call', async (req, res) => {
     const { yourActiveNumber, targetNumber } = req.body;
     const client = twilio(ACCOUNT_SID, AUTH_TOKEN);
 
     try {
         const call = await client.calls.create({
-            url: `https://${req.headers.host}/voice`,
+            url: 'https://secret-call-production.up.railway.app/api/voice-webhook',
             to: yourActiveNumber,
             from: TWILIO_PHONE_NUMBER
         });
