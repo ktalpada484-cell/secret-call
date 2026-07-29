@@ -20,6 +20,11 @@ const VoiceGrant = AccessToken.VoiceGrant;
 // 1. Browser Access Token Endpoint
 app.get('/api/token', (req, res) => {
     try {
+        if (!ACCOUNT_SID || !API_KEY || !API_SECRET || !TWIML_APP_SID) {
+            console.error("Missing Environment Variables on Server!");
+            return res.status(500).json({ success: false, error: "Server config missing (Env variables)" });
+        }
+
         const voiceGrant = new VoiceGrant({
             outgoingApplicationSid: TWIML_APP_SID,
             incomingAllow: true,
@@ -35,29 +40,22 @@ app.get('/api/token', (req, res) => {
         token.addGrant(voiceGrant);
         res.json({ success: true, token: token.toJwt() });
     } catch (err) {
+        console.error("Token Generation Error:", err.message);
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
 // 2. Option B Matched Endpoint: /api/voice-webhook
 app.post('/api/voice-webhook', (req, res) => {
+    console.log("Webhook hit! Body:", req.body);
     const twiml = new twilio.twiml.VoiceResponse();
     const targetNumber = req.body.To;
-    const effect = req.body.effect || 'normal';
 
     if (targetNumber) {
         const dial = twiml.dial({
             callerId: TWILIO_PHONE_NUMBER
         });
-
-        // Effect Routing Parameter
-        let numberOptions = {};
-        if (effect === 'deep') {
-            // Pitch lowering parameter pass
-            numberOptions.url = 'http://demo.twilio.com/docs/voice.xml'; 
-        }
-
-        dial.number(numberOptions, targetNumber);
+        dial.number(targetNumber);
     } else {
         twiml.say("Invalid target phone number.");
     }
@@ -79,6 +77,7 @@ app.post('/api/bridge-call', async (req, res) => {
         });
         res.json({ success: true, callSid: call.sid });
     } catch (err) {
+        console.error("Bridge Call Error:", err.message);
         res.status(500).json({ success: false, error: err.message });
     }
 });
