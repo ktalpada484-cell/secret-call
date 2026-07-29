@@ -11,40 +11,68 @@ const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const virtualSecretNumber = process.env.TWILIO_PHONE_NUMBER;
 
+// Root Route - Serves index.html
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Real Two-Way Secret Bridge Call API
-app.post('/api/make-secret-call', async (req, res) => {
-    const { myNumber, targetNumber } = req.body;
+// --- OPTION 1: Bridge Method (Call active phone first, then target) ---
+app.post('/api/bridge-call', async (req, res) => {
+    const { yourActiveNumber, targetNumber } = req.body;
 
     if (!accountSid || !authToken || !virtualSecretNumber) {
         return res.status(500).json({ 
             success: false, 
-            error: "Railway me Twilio Environment Variables missing hain!" 
+            error: "Railway me TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN ya TWILIO_PHONE_NUMBER missing hain!" 
         });
     }
 
     try {
         const client = twilio(accountSid, authToken);
 
-        // 1. Pehle aapke phone (myNumber) par call aayegi.
-        // 2. Jaise hi aap uthayenge, Twilio targetNumber ko dial karke 2-way conversation start kar dega.
+        // Pehle active number par call aayegi, uthane par target connect hoga
         const call = await client.calls.create({
-            twiml: `<Response><Dial callerId="${virtualSecretNumber}">${targetNumber}</Dial></Response>`,
-            to: myNumber,               // Aapka mobile number
-            from: virtualSecretNumber   // Aapka +1 Virtual Number
+            twiml: `<Response><Say>Connecting your secret call.</Say><Dial callerId="${virtualSecretNumber}">${targetNumber}</Dial></Response>`,
+            to: yourActiveNumber,
+            from: virtualSecretNumber
         });
 
         res.json({ success: true, message: "Bridge Call Initiated!", callSid: call.sid });
     } catch (error) {
-        console.error("Twilio API Error:", error);
+        console.error("Bridge Call Error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- OPTION 2: Direct Browser / Direct Trigger Method ---
+app.post('/api/browser-call', async (req, res) => {
+    const { targetNumber } = req.body;
+
+    if (!accountSid || !authToken || !virtualSecretNumber) {
+        return res.status(500).json({ 
+            success: false, 
+            error: "Railway me TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN ya TWILIO_PHONE_NUMBER missing hain!" 
+        });
+    }
+
+    try {
+        const client = twilio(accountSid, authToken);
+
+        // Direct call to target number using Virtual Number as Caller ID
+        const call = await client.calls.create({
+            twiml: `<Response><Dial callerId="${virtualSecretNumber}">${targetNumber}</Dial></Response>`,
+            to: targetNumber,
+            from: virtualSecretNumber
+        });
+
+        res.json({ success: true, message: "Direct Call Active!", callSid: call.sid });
+    } catch (error) {
+        console.error("Browser Call Error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Secret Call Gateway running on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
