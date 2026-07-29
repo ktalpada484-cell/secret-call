@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secret Call - Professional Suite</title>
+    <!-- Twilio Voice SDK -->
+    <script src="https://sdk.twilio.com/js/client/v1.13/twilio.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body {
@@ -76,7 +78,6 @@
 
         .timer { font-size: 14px; color: #88bb99; margin-top: 5px; }
 
-        /* IN-CALL CONTROLS GRID */
         .controls-grid {
             display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 30px;
         }
@@ -96,7 +97,6 @@
         }
         .end-btn:hover { background: rgba(255, 50, 50, 0.6); box-shadow: 0 0 20px rgba(255, 68, 68, 0.6); }
 
-        /* DIALPAD DRAWER */
         .dialpad-container {
             display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; max-width: 260px; margin-left: auto; margin-right: auto;
         }
@@ -147,7 +147,7 @@
             </div>
 
             <div class="input-group" id="yourPhoneGroup">
-                <label>Your Active Phone Number (Jahan Call Aayegi)</label>
+                <label>Your Active Phone Number</label>
                 <div class="input-wrapper">
                     <select class="country-select" id="myCountryCode">
                         <option value="+91" selected>🇮🇳 +91</option>
@@ -157,7 +157,7 @@
             </div>
 
             <div class="input-group">
-                <label>Target Phone Number (Jispar Call Karni Hai)</label>
+                <label>Target Phone Number</label>
                 <div class="input-wrapper">
                     <select class="country-select" id="targetCountryCode">
                         <option value="+91" selected>🇮🇳 +91</option>
@@ -179,7 +179,6 @@
             <div class="timer" id="callTimer">00:00</div>
             <p style="color:#00ff66; margin-top:8px; font-size:12px;" id="callStatusText">Connecting...</p>
 
-            <!-- CALL CONTROLS -->
             <div class="controls-grid">
                 <div class="control-btn" id="muteBtn" onclick="toggleMute()">
                     🎙️
@@ -195,7 +194,6 @@
                 </div>
             </div>
 
-            <!-- DTMF KEYPAD (HIDDEN BY DEFAULT) -->
             <div class="dialpad-container hidden" id="dialpad">
                 <button class="num-btn" onclick="pressKey('1')">1</button>
                 <button class="num-btn" onclick="pressKey('2')">2</button>
@@ -223,6 +221,7 @@
         let isSpeakerOn = false;
         let timerInterval = null;
         let secondsElapsed = 0;
+        let activeConnection = null;
 
         function handleLogin(e) {
             e.preventDefault();
@@ -231,6 +230,7 @@
             if (u === VALID_USER && p === VALID_PASS) {
                 document.getElementById('loginScreen').classList.add('hidden');
                 document.getElementById('dialerScreen').classList.remove('hidden');
+                if(currentMode === 'browser') setupTwilioDevice();
             } else {
                 document.getElementById('loginError').style.display = 'block';
             }
@@ -241,6 +241,21 @@
             document.getElementById('btnBridge').classList.toggle('active', mode === 'bridge');
             document.getElementById('btnBrowser').classList.toggle('active', mode === 'browser');
             document.getElementById('yourPhoneGroup').classList.toggle('hidden', mode === 'browser');
+            if(mode === 'browser') {
+                setupTwilioDevice();
+            }
+        }
+
+        async function setupTwilioDevice() {
+            try {
+                const res = await fetch('/api/token');
+                const data = await res.json();
+                if(data.success) {
+                    Twilio.Device.setup(data.token);
+                }
+            } catch(e) {
+                console.error("Twilio Device Setup Error:", e);
+            }
         }
 
         async function initiateSecretCall() {
@@ -254,8 +269,11 @@
                 return;
             }
 
-            let endpoint = '';
-            let payload = {};
+            errorDiv.style.display = 'none';
+            document.getElementById('targetDisplayNum').innerText = targetCode + " " + targetNum;
+            document.getElementById('callModal').classList.add('active');
+            document.getElementById('callStatusText').innerText = "Connecting...";
+            startTimer();
 
             if (currentMode === 'bridge') {
                 const myCode = document.getElementById('myCountryCode').value;
@@ -263,36 +281,42 @@
                 if (myNum.length < 10) {
                     errorDiv.innerText = "Aapka active mobile number zaroori hai!";
                     errorDiv.style.display = 'block';
+                    document.getElementById('callModal').classList.remove('active');
+                    clearInterval(timerInterval);
                     return;
                 }
-                endpoint = '/api/bridge-call';
-                payload = { yourActiveNumber: myCode + myNum, targetNumber: targetCode + targetNum };
-            } else {
-                endpoint = '/api/browser-call';
-                payload = { targetNumber: targetCode + targetNum };
-            }
-
-            errorDiv.style.display = 'none';
-            document.getElementById('targetDisplayNum').innerText = targetCode + " " + targetNum;
-            document.getElementById('callModal').classList.add('active');
-            document.getElementById('callStatusText').innerText = "Ringing Target Number...";
-
-            startTimer();
-
-            try {
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const data = await response.json();
-                if (data.success) {
-                    document.getElementById('callStatusText').innerText = "Call Connected!";
-                } else {
-                    document.getElementById('callStatusText').innerText = "Error: " + data.error;
+                try {
+                    const response = await fetch('/api/bridge-call', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ yourActiveNumber: myCode + myNum, targetNumber: targetCode + targetNum })
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                        document.getElementById('callStatusText').innerText = "Bridge Call Ringing Your Phone...";
+                    } else {
+                        document.getElementById('callStatusText').innerText = "Error: " + data.error;
+                    }
+                } catch (err) {
+                    document.getElementById('callStatusText').innerText = "Connection Failed!";
                 }
-            } catch (err) {
-                document.getElementById('callStatusText').innerText = "Connection Failed!";
+            } else {
+                // Browser WebRTC Direct Call
+                try {
+                    activeConnection = Twilio.Device.connect({ To: targetCode + targetNum });
+                    
+                    activeConnection.on('accept', () => {
+                        document.getElementById('callStatusText').innerText = "Call Connected!";
+                    });
+                    activeConnection.on('disconnect', () => {
+                        endCall();
+                    });
+                    activeConnection.on('error', (err) => {
+                        document.getElementById('callStatusText').innerText = "Error: " + err.message;
+                    });
+                } catch(e) {
+                    document.getElementById('callStatusText').innerText = "Microphone Permission Required!";
+                }
             }
         }
 
@@ -312,13 +336,16 @@
             const btn = document.getElementById('muteBtn');
             btn.classList.toggle('active', isMuted);
             document.getElementById('muteLabel').innerText = isMuted ? "Unmute" : "Mute";
+            if(activeConnection) {
+                activeConnection.mute(isMuted);
+            }
         }
 
         function toggleSpeaker() {
             isSpeakerOn = !isSpeakerOn;
             const btn = document.getElementById('speakerBtn');
             btn.classList.toggle('active', isSpeakerOn);
-            document.getElementById('speakerLabel').innerText = isSpeakerOn ? "Ear" : "Speaker";
+            document.getElementById('speakerLevel').innerText = isSpeakerOn ? "Ear" : "Speaker";
         }
 
         function toggleDialpad() {
@@ -326,11 +353,17 @@
         }
 
         function pressKey(key) {
-            console.log("DTMF Key Sent:", key);
+            if(activeConnection) {
+                activeConnection.sendDigits(key);
+            }
         }
 
         function endCall() {
             clearInterval(timerInterval);
+            if(activeConnection) {
+                activeConnection.disconnect();
+                activeConnection = null;
+            }
             document.getElementById('callModal').classList.remove('active');
             document.getElementById('dialpad').classList.add('hidden');
         }
