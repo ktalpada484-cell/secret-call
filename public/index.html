@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secret Call - Professional Suite</title>
-    <!-- Twilio Voice SDK -->
-    <script src="https://sdk.twilio.com/js/client/v1.13/twilio.min.js"></script>
+    <!-- Updated Stable Twilio Voice SDK V2 -->
+    <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body {
@@ -221,7 +221,8 @@
         let isSpeakerOn = false;
         let timerInterval = null;
         let secondsElapsed = 0;
-        let activeConnection = null;
+        let twilioDevice = null;
+        let activeCall = null;
 
         function handleLogin(e) {
             e.preventDefault();
@@ -230,7 +231,6 @@
             if (u === VALID_USER && p === VALID_PASS) {
                 document.getElementById('loginScreen').classList.add('hidden');
                 document.getElementById('dialerScreen').classList.remove('hidden');
-                if(currentMode === 'browser') setupTwilioDevice();
             } else {
                 document.getElementById('loginError').style.display = 'block';
             }
@@ -241,9 +241,6 @@
             document.getElementById('btnBridge').classList.toggle('active', mode === 'bridge');
             document.getElementById('btnBrowser').classList.toggle('active', mode === 'browser');
             document.getElementById('yourPhoneGroup').classList.toggle('hidden', mode === 'browser');
-            if(mode === 'browser') {
-                setupTwilioDevice();
-            }
         }
 
         async function setupTwilioDevice() {
@@ -251,10 +248,19 @@
                 const res = await fetch('/api/token');
                 const data = await res.json();
                 if(data.success) {
-                    Twilio.Device.setup(data.token);
+                    twilioDevice = new Twilio.Voice.Device(data.token, {
+                        debug: true,
+                        codecPreferences: ['opus', 'pcmu']
+                    });
+                    await twilioDevice.register();
+                    return true;
+                } else {
+                    console.error("Token error:", data.error);
+                    return false;
                 }
             } catch(e) {
                 console.error("Twilio Device Setup Error:", e);
+                return false;
             }
         }
 
@@ -301,20 +307,31 @@
                     document.getElementById('callStatusText').innerText = "Connection Failed!";
                 }
             } else {
-                // Browser WebRTC Direct Call
+                // Browser Direct Call via Voice SDK v2
+                const isReady = await setupTwilioDevice();
+                if (!isReady) {
+                    document.getElementById('callStatusText').innerText = "Device Registration Failed!";
+                    return;
+                }
+
                 try {
-                    activeConnection = Twilio.Device.connect({ To: targetCode + targetNum });
-                    
-                    activeConnection.on('accept', () => {
-                        document.getElementById('callStatusText').innerText = "Call Connected!";
+                    activeCall = await twilioDevice.connect({
+                        params: { To: targetCode + targetNum }
                     });
-                    activeConnection.on('disconnect', () => {
+
+                    activeCall.on('accept', () => {
+                        document.getElementById('callStatusText').innerText = "Call Connected! Speaking...";
+                    });
+
+                    activeCall.on('disconnect', () => {
                         endCall();
                     });
-                    activeConnection.on('error', (err) => {
-                        document.getElementById('callStatusText').innerText = "Error: " + err.message;
+
+                    activeCall.on('error', (error) => {
+                        console.error("Call Error:", error);
+                        document.getElementById('callStatusText').innerText = "Call Failed: " + error.message;
                     });
-                } catch(e) {
+                } catch (err) {
                     document.getElementById('callStatusText').innerText = "Microphone Permission Required!";
                 }
             }
@@ -332,12 +349,12 @@
         }
 
         function toggleMute() {
-            isMuted = !isMuted;
-            const btn = document.getElementById('muteBtn');
-            btn.classList.toggle('active', isMuted);
-            document.getElementById('muteLabel').innerText = isMuted ? "Unmute" : "Mute";
-            if(activeConnection) {
-                activeConnection.mute(isMuted);
+            if (activeCall) {
+                isMuted = !isMuted;
+                activeCall.mute(isMuted);
+                const btn = document.getElementById('muteBtn');
+                btn.classList.toggle('active', isMuted);
+                document.getElementById('muteLabel').innerText = isMuted ? "Unmute" : "Mute";
             }
         }
 
@@ -345,7 +362,7 @@
             isSpeakerOn = !isSpeakerOn;
             const btn = document.getElementById('speakerBtn');
             btn.classList.toggle('active', isSpeakerOn);
-            document.getElementById('speakerLevel').innerText = isSpeakerOn ? "Ear" : "Speaker";
+            document.getElementById('speakerLabel').innerText = isSpeakerOn ? "Ear" : "Speaker";
         }
 
         function toggleDialpad() {
@@ -353,16 +370,20 @@
         }
 
         function pressKey(key) {
-            if(activeConnection) {
-                activeConnection.sendDigits(key);
+            if (activeCall) {
+                activeCall.sendDigits(key);
             }
         }
 
         function endCall() {
             clearInterval(timerInterval);
-            if(activeConnection) {
-                activeConnection.disconnect();
-                activeConnection = null;
+            if (activeCall) {
+                activeCall.disconnect();
+                activeCall = null;
+            }
+            if (twilioDevice) {
+                twilioDevice.destroy();
+                twilioDevice = null;
             }
             document.getElementById('callModal').classList.remove('active');
             document.getElementById('dialpad').classList.add('hidden');
