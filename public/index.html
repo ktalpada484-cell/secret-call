@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secret Call - Private Portal</title>
-    <script src="https://media.twiliocdn.com/sdk/js/client/v1.13/twilio.min.js"></script>
+    <!-- Latest Twilio Voice SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         body {
@@ -75,18 +76,6 @@
         }
 
         .timer { font-size: 14px; color: #88bb99; margin-top: 5px; }
-
-        .controls-grid {
-            display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 30px;
-        }
-        .control-btn {
-            background: rgba(0, 255, 102, 0.08); border: 1px solid rgba(0, 255, 102, 0.3);
-            border-radius: 50%; width: 65px; height: 65px; margin: 0 auto;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-            color: #ffffff; cursor: pointer; transition: all 0.3s ease; font-size: 20px;
-        }
-        .control-btn.active { background: rgba(0, 255, 102, 0.4); border-color: #00ff66; }
-        .control-btn label { font-size: 10px; margin-top: 4px; color: #00ff66; pointer-events: none; }
 
         .end-btn {
             background: rgba(255, 50, 50, 0.2); border: 1px solid #ff4444; color: #ff4444;
@@ -175,7 +164,8 @@
         let currentMode = 'bridge';
         let timerInterval = null;
         let secondsElapsed = 0;
-        let activeConnection = null;
+        let device = null;
+        let activeCall = null;
 
         function handleLogin(e) {
             e.preventDefault();
@@ -194,23 +184,6 @@
             document.getElementById('btnBridge').classList.toggle('active', mode === 'bridge');
             document.getElementById('btnBrowser').classList.toggle('active', mode === 'browser');
             document.getElementById('yourPhoneGroup').classList.toggle('hidden', mode === 'browser');
-        }
-
-        async function setupDevice() {
-            try {
-                const res = await fetch('/api/token');
-                const data = await res.json();
-                if (data.success && window.Twilio) {
-                    Twilio.Device.setup(data.token, { debug: true });
-                    return true;
-                } else {
-                    document.getElementById('callStatusText').innerText = "Server Error: " + (data.error || "Token fail");
-                    return false;
-                }
-            } catch (err) {
-                console.error("Device error:", err);
-                return false;
-            }
         }
 
         async function initiateSecretCall() {
@@ -256,30 +229,47 @@
                     document.getElementById('callStatusText').innerText = "Connection Failed!";
                 }
             } else {
-                const isReady = await setupDevice();
-                if (isReady) {
-                    try {
-                        activeConnection = Twilio.Device.connect({ To: targetCode + targetNum });
-                        
-                        Twilio.Device.ready(() => {
-                            document.getElementById('callStatusText').innerText = "Dialing target number...";
-                        });
+                try {
+                    document.getElementById('callStatusText').innerText = "Fetching Voice Token...";
+                    const res = await fetch('/api/token');
+                    const data = await res.json();
 
-                        Twilio.Device.connect(() => {
-                            document.getElementById('callStatusText').innerText = "Call Connected! Speaking...";
-                        });
-
-                        Twilio.Device.disconnect(() => {
-                            endCall();
-                        });
-
-                        Twilio.Device.error((err) => {
-                            console.error("Twilio Error:", err);
-                            document.getElementById('callStatusText').innerText = "Error: " + err.message;
-                        });
-                    } catch(e) {
-                        document.getElementById('callStatusText').innerText = "Mic Permission Denied!";
+                    if (!data.success) {
+                        document.getElementById('callStatusText').innerText = "Token Error: " + data.error;
+                        return;
                     }
+
+                    document.getElementById('callStatusText').innerText = "Registering Device...";
+
+                    // Initialize Device with modern Twilio Voice SDK
+                    device = new Twilio.Voice.Device(data.token, {
+                        debug: true,
+                        codecPreferences: ['opus', 'pcmu']
+                    });
+
+                    await device.register();
+
+                    document.getElementById('callStatusText').innerText = "Dialing target...";
+
+                    activeCall = await device.connect({
+                        params: { To: targetCode + targetNum }
+                    });
+
+                    activeCall.on('accept', () => {
+                        document.getElementById('callStatusText').innerText = "Call Connected! Speaking...";
+                    });
+
+                    activeCall.on('disconnect', () => {
+                        endCall();
+                    });
+
+                    activeCall.on('error', (err) => {
+                        document.getElementById('callStatusText').innerText = "Call Error: " + err.message;
+                    });
+
+                } catch (err) {
+                    console.error("Twilio Error:", err);
+                    document.getElementById('callStatusText').innerText = "Mic Permission Denied / Error!";
                 }
             }
         }
@@ -297,8 +287,13 @@
 
         function endCall() {
             clearInterval(timerInterval);
-            if (window.Twilio) {
-                Twilio.Device.disconnectAll();
+            if (activeCall) {
+                activeCall.disconnect();
+                activeCall = null;
+            }
+            if (device) {
+                device.destroy();
+                device = null;
             }
             document.getElementById('callModal').classList.remove('active');
         }
