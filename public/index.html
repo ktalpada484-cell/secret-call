@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secret Call - Private Portal</title>
 
-    <!-- Unpkg Working Twilio Voice SDK (No Access Denied Error) -->
-    <script src="https://unpkg.com/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js"></script>
+    <!-- CDN Backup 1 & 2 (Auto Fallback) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twilio-client/1.14.0/twilio.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js" crossorigin="anonymous"></script>
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
@@ -172,7 +173,6 @@
         let device = null;
         let activeCall = null;
 
-        // Auto Request Mic Permission
         async function requestMicPermission() {
             try {
                 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -263,44 +263,34 @@
 
                     document.getElementById('callStatusText').innerText = "Connecting Voice Engine...";
 
-                    if (window.Twilio && Twilio.Voice) {
-                        device = new Twilio.Voice.Device(data.token, {
-                            debug: true,
-                            codecPreferences: ['opus', 'pcmu']
-                        });
+                    // Check for Twilio Voice v2 SDK or Legacy Twilio Device SDK
+                    const VoiceDevice = (window.Twilio && Twilio.Voice && Twilio.Voice.Device) || (window.Twilio && Twilio.Device);
 
-                        device.on('error', (error) => {
-                            console.error('Twilio Error:', error);
-                            document.getElementById('callStatusText').innerText = "Device Error: " + (error.message || error.code);
-                        });
-
-                        device.on('registered', async () => {
-                            document.getElementById('callStatusText').innerText = "Dialing target...";
-                            try {
-                                activeCall = await device.connect({
-                                    params: { To: targetCode + targetNum }
-                                });
-
-                                activeCall.on('accept', () => {
-                                    document.getElementById('callStatusText').innerText = "Call Connected! Speaking...";
-                                });
-
-                                activeCall.on('disconnect', () => {
-                                    endCall();
-                                });
-
-                                activeCall.on('error', (err) => {
-                                    document.getElementById('callStatusText').innerText = "Call Error: " + err.message;
-                                });
-                            } catch (connErr) {
-                                document.getElementById('callStatusText').innerText = "Call Failed: " + connErr.message;
-                            }
-                        });
-
-                        await device.register();
-
+                    if (VoiceDevice) {
+                        if (Twilio.Voice && Twilio.Voice.Device) {
+                            device = new Twilio.Voice.Device(data.token, { debug: true });
+                            device.on('registered', async () => {
+                                document.getElementById('callStatusText').innerText = "Dialing target...";
+                                activeCall = await device.connect({ params: { To: targetCode + targetNum } });
+                                activeCall.on('accept', () => document.getElementById('callStatusText').innerText = "Connected!");
+                                activeCall.on('disconnect', () => endCall());
+                            });
+                            await device.register();
+                        } else {
+                            // Legacy SDK Fallback
+                            Twilio.Device.setup(data.token);
+                            Twilio.Device.ready(() => {
+                                document.getElementById('callStatusText').innerText = "Dialing target...";
+                                activeCall = Twilio.Device.connect({ To: targetCode + targetNum });
+                            });
+                            Twilio.Device.connect(() => document.getElementById('callStatusText').innerText = "Connected!");
+                            Twilio.Device.disconnect(() => endCall());
+                            Twilio.Device.error((err) => {
+                                document.getElementById('callStatusText').innerText = "Error: " + err.message;
+                            });
+                        }
                     } else {
-                        document.getElementById('callStatusText').innerText = "Twilio SDK failed to load!";
+                        document.getElementById('callStatusText').innerText = "Browser SDK Restricted! Use Bridge Mode (Phone).";
                     }
 
                 } catch (err) {
@@ -324,12 +314,15 @@
         function endCall() {
             clearInterval(timerInterval);
             if (activeCall) {
-                activeCall.disconnect();
+                if (activeCall.disconnect) activeCall.disconnect();
                 activeCall = null;
             }
             if (device) {
-                device.destroy();
+                if (device.destroy) device.destroy();
                 device = null;
+            }
+            if (window.Twilio && Twilio.Device) {
+                Twilio.Device.disconnectAll();
             }
             document.getElementById('callModal').classList.remove('active');
         }
