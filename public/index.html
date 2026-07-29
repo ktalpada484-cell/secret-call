@@ -5,10 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secret Call - Private Portal</title>
 
-    <!-- 1. Microphone Permission Script (Page load par hi mic permission maangega) -->
-    <script src="permission.js"></script>
-
-    <!-- 2. Latest Twilio Voice SDK v2 -->
+    <!-- Twilio Voice SDK v2 -->
     <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js"></script>
 
     <style>
@@ -175,6 +172,18 @@
         let device = null;
         let activeCall = null;
 
+        // Auto Request Mic Permission on Page Load
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    stream.getTracks().forEach(track => track.stop());
+                }
+            } catch (e) {
+                console.warn("Initial Mic Permission Request Warning:", e);
+            }
+        });
+
         function handleLogin(e) {
             e.preventDefault();
             const u = document.getElementById('username').value.trim();
@@ -247,36 +256,51 @@
                         return;
                     }
 
-                    document.getElementById('callStatusText').innerText = "Registering Device...";
+                    document.getElementById('callStatusText').innerText = "Connecting Voice Engine...";
 
-                    device = new Twilio.Voice.Device(data.token, {
-                        debug: true,
-                        codecPreferences: ['opus', 'pcmu']
-                    });
+                    if (window.Twilio && Twilio.Voice) {
+                        device = new Twilio.Voice.Device(data.token, {
+                            debug: true,
+                            codecPreferences: ['opus', 'pcmu']
+                        });
 
-                    await device.register();
+                        device.on('error', (error) => {
+                            console.error('Twilio Device Error:', error);
+                            document.getElementById('callStatusText').innerText = "Device Error: " + (error.message || error.code);
+                        });
 
-                    document.getElementById('callStatusText').innerText = "Dialing target...";
+                        device.on('registered', async () => {
+                            document.getElementById('callStatusText').innerText = "Dialing target...";
+                            try {
+                                activeCall = await device.connect({
+                                    params: { To: targetCode + targetNum }
+                                });
 
-                    activeCall = await device.connect({
-                        params: { To: targetCode + targetNum }
-                    });
+                                activeCall.on('accept', () => {
+                                    document.getElementById('callStatusText').innerText = "Call Connected! Speaking...";
+                                });
 
-                    activeCall.on('accept', () => {
-                        document.getElementById('callStatusText').innerText = "Call Connected! Speaking...";
-                    });
+                                activeCall.on('disconnect', () => {
+                                    endCall();
+                                });
 
-                    activeCall.on('disconnect', () => {
-                        endCall();
-                    });
+                                activeCall.on('error', (err) => {
+                                    document.getElementById('callStatusText').innerText = "Call Error: " + err.message;
+                                });
+                            } catch (connErr) {
+                                document.getElementById('callStatusText').innerText = "Call Failed: " + connErr.message;
+                            }
+                        });
 
-                    activeCall.on('error', (err) => {
-                        document.getElementById('callStatusText').innerText = "Call Error: " + err.message;
-                    });
+                        await device.register();
+
+                    } else {
+                        document.getElementById('callStatusText').innerText = "Twilio SDK failed to load!";
+                    }
 
                 } catch (err) {
-                    console.error("Twilio Error:", err);
-                    document.getElementById('callStatusText').innerText = "Mic Permission Denied / Error!";
+                    console.error("System Error:", err);
+                    document.getElementById('callStatusText').innerText = "Error: " + (err.message || err);
                 }
             }
         }
