@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secret Call - Private Portal</title>
 
-    <!-- Official Twilio Voice SDK (No CDN Blocks) -->
-    <script src="https://sdk.twilio.com/js/voice/releases/2.10.1/twilio-voice.min.js"></script>
+    <!-- Unpkg Working Twilio Voice SDK (No Access Denied Error) -->
+    <script src="https://unpkg.com/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js"></script>
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
@@ -172,17 +172,15 @@
         let device = null;
         let activeCall = null;
 
-        // AUTOMATIC MICROPHONE PERMISSION REQUEST ON PAGE LOAD
+        // Auto Request Mic Permission
         async function requestMicPermission() {
             try {
                 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                    console.log("Requesting Microphone Permission...");
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     stream.getTracks().forEach(track => track.stop());
-                    console.log("Microphone Access Granted!");
                 }
             } catch (err) {
-                console.warn("Microphone Permission Request Error:", err);
+                console.warn("Mic Error:", err);
             }
         }
 
@@ -197,7 +195,6 @@
             if (u === VALID_USER && p === VALID_PASS) {
                 document.getElementById('loginScreen').classList.add('hidden');
                 document.getElementById('dialerScreen').classList.remove('hidden');
-                // Re-trigger mic prompt after login
                 requestMicPermission();
             } else {
                 document.getElementById('loginError').style.display = 'block';
@@ -273,7 +270,7 @@
                         });
 
                         device.on('error', (error) => {
-                            console.error('Twilio Device Error:', error);
+                            console.error('Twilio Error:', error);
                             document.getElementById('callStatusText').innerText = "Device Error: " + (error.message || error.code);
                         });
 
