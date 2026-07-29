@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secret Call - Private Portal</title>
+    <!-- Twilio Official Voice SDK -->
+    <script src="https://media.twiliocdn.com/sdk/js/voice/releases/2.10.1/twilio-voice.min.js"></script>
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
@@ -192,53 +194,8 @@
         let currentMode = 'browser';
         let timerInterval = null;
         let secondsElapsed = 0;
+        let device = null;
         let activeCall = null;
-        let isMuted = false;
-
-        // Auto Load SDK Multiple Mirror Sources
-        function loadEmbeddedSDK() {
-            return new Promise((resolve) => {
-                if (window.Twilio) return resolve(true);
-
-                const cdnSources = [
-                    "https://unpkg.com/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js",
-                    "https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.10.1/dist/twilio-voice.min.js",
-                    "https://media.twiliocdn.com/sdk/js/voice/releases/2.10.1/twilio-voice.min.js"
-                ];
-
-                let loaded = false;
-                let count = 0;
-
-                cdnSources.forEach(src => {
-                    const script = document.createElement('script');
-                    script.src = src;
-                    script.onload = () => {
-                        if (!loaded) { loaded = true; resolve(true); }
-                    };
-                    script.onerror = () => {
-                        count++;
-                        if (count === cdnSources.length && !loaded) resolve(false);
-                    };
-                    document.head.appendChild(script);
-                });
-            });
-        }
-
-        async function requestMicPermission() {
-            try {
-                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    stream.getTracks().forEach(track => track.stop());
-                }
-            } catch (err) {
-                console.warn("Mic Error:", err);
-            }
-        }
-
-        window.addEventListener('DOMContentLoaded', () => {
-            requestMicPermission();
-            loadEmbeddedSDK();
-        });
 
         function handleLogin(e) {
             e.preventDefault();
@@ -247,7 +204,6 @@
             if (u === VALID_USER && p === VALID_PASS) {
                 document.getElementById('loginScreen').classList.add('hidden');
                 document.getElementById('dialerScreen').classList.remove('hidden');
-                requestMicPermission();
             } else {
                 document.getElementById('loginError').style.display = 'block';
             }
@@ -274,93 +230,48 @@
             errorDiv.style.display = 'none';
             document.getElementById('targetDisplayNum').innerText = targetCode + " " + targetNum;
             document.getElementById('callModal').classList.add('active');
-            document.getElementById('callStatusText').innerText = "Initiating Private Channel...";
+            document.getElementById('callStatusText').innerText = "Connecting...";
             startTimer();
 
             if (currentMode === 'browser') {
                 try {
-                    document.getElementById('callStatusText').innerText = "Checking Engine...";
-                    await loadEmbeddedSDK();
-
-                    document.getElementById('callStatusText').innerText = "Fetching Secure Token...";
                     const res = await fetch('/api/token');
                     const data = await res.json();
-
                     if (!data.success) {
-                        document.getElementById('callStatusText').innerText = "Token Error: " + data.error;
+                        document.getElementById('callStatusText').innerText = "Token Error!";
                         return;
                     }
 
-                    document.getElementById('callStatusText').innerText = "Ringing Target Number...";
-
-                    // WebRTC Direct Fallback
-                    if (window.Twilio?.Voice?.Device) {
-                        const device = new Twilio.Voice.Device(data.token, { debug: false });
+                    if (window.Twilio && Twilio.Voice) {
+                        device = new Twilio.Voice.Device(data.token);
                         device.on('registered', async () => {
-                            try {
-                                activeCall = await device.connect({ params: { To: targetCode + targetNum } });
-                                activeCall.on('accept', () => document.getElementById('callStatusText').innerText = "Call Connected!");
-                                activeCall.on('disconnect', () => endCall());
-                            } catch (cErr) {
-                                document.getElementById('callStatusText').innerText = "Call Error: " + cErr.message;
-                            }
+                            document.getElementById('callStatusText').innerText = "Ringing...";
+                            activeCall = await device.connect({ params: { To: targetCode + targetNum } });
+                            activeCall.on('accept', () => document.getElementById('callStatusText').innerText = "Connected!");
+                            activeCall.on('disconnect', () => endCall());
                         });
                         await device.register();
-                    } else {
-                        // Direct WebRTC connection trigger
-                        document.getElementById('callStatusText').innerText = "Calling via WebRTC Direct Link...";
-                        setTimeout(() => {
-                            document.getElementById('callStatusText').innerText = "Call Ringing (+91 " + targetNum + ")...";
-                        }, 1500);
-                    }
-
-                } catch (err) {
-                    console.error("Browser Mode Error:", err);
-                    document.getElementById('callStatusText').innerText = "Connecting Call...";
-                }
-            } else {
-                // Bridge Mode
-                const myCode = document.getElementById('myCountryCode').value;
-                const myNum = document.getElementById('myNumber').value.trim();
-                if (myNum.length < 10) {
-                    errorDiv.innerText = "Aapka active mobile number zaroori hai!";
-                    errorDiv.style.display = 'block';
-                    document.getElementById('callModal').classList.remove('active');
-                    clearInterval(timerInterval);
-                    return;
-                }
-                try {
-                    const response = await fetch('/api/bridge-call', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ yourActiveNumber: myCode + myNum, targetNumber: targetCode + targetNum })
-                    });
-                    const data = await response.json();
-                    if (data.success) {
-                        document.getElementById('callStatusText').innerText = "Bridge Call Ringing...";
-                    } else {
-                        document.getElementById('callStatusText').innerText = "Error: " + data.error;
+                    } else if (window.Twilio && Twilio.Device) {
+                        Twilio.Device.setup(data.token);
+                        Twilio.Device.ready(() => {
+                            document.getElementById('callStatusText').innerText = "Ringing...";
+                            activeCall = Twilio.Device.connect({ To: targetCode + targetNum });
+                        });
+                        Twilio.Device.connect(() => document.getElementById('callStatusText').innerText = "Connected!");
+                        Twilio.Device.disconnect(() => endCall());
                     }
                 } catch (err) {
                     document.getElementById('callStatusText').innerText = "Connection Failed!";
                 }
+            } else {
+                const myCode = document.getElementById('myCountryCode').value;
+                const myNum = document.getElementById('myNumber').value.trim();
+                fetch('/api/bridge-call', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ yourActiveNumber: myCode + myNum, targetNumber: targetCode + targetNum })
+                });
             }
-        }
-
-        function toggleMute() {
-            isMuted = !isMuted;
-            const btn = document.getElementById('muteBtn');
-            btn.classList.toggle('active', isMuted);
-            btn.innerText = isMuted ? "🔇" : "🎙️";
-
-            if (activeCall && activeCall.mute) {
-                activeCall.mute(isMuted);
-            }
-        }
-
-        function toggleSpeaker() {
-            const btn = document.getElementById('speakerBtn');
-            btn.classList.toggle('active');
         }
 
         function startTimer() {
@@ -376,14 +287,8 @@
 
         function endCall() {
             clearInterval(timerInterval);
-            if (activeCall && activeCall.disconnect) {
-                activeCall.disconnect();
-            }
-            activeCall = null;
+            if (activeCall && activeCall.disconnect) activeCall.disconnect();
             document.getElementById('callModal').classList.remove('active');
-            isMuted = false;
-            document.getElementById('muteBtn').classList.remove('active');
-            document.getElementById('muteBtn').innerText = "🎙️";
         }
     </script>
 </body>
